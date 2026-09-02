@@ -1,32 +1,40 @@
-# Cinemeta PT-BR
+# Agregador PT-BR (Stremio)
 
-Addon para Stremio baseado no Cinemeta.
+Addon para Stremio que **agrega os catálogos de vários outros addons** em um único catálogo por tipo (Filmes, Séries, etc.), traduz sinopses para PT-BR, prefere pôsteres em português (via TMDB) e aplica filtros opcionais e cumulativos.
 
-## Recursos
+## Como funciona
 
-- Proxy de metadados do Cinemeta.
-- Sinopse preferencialmente obtida do TMDB em `pt-BR`.
-- Fallback para tradução automática da sinopse quando o TMDB não possui overview localizado.
-- Preferência por pôster com idioma português no TMDB; fallback para pôster sem idioma/original.
-- Catálogos Popular, Featured e New para filmes e séries.
-- Filtros combináveis: `Ano`, `Gênero`, `Busca` e `skip`.
-- Cache em memória para reduzir chamadas ao TMDB e ao serviço de tradução.
-- Chave TMDB somente por variável de ambiente.
+Um addon do Stremio não consegue ver quais addons você tem instalados no seu app — essa informação não existe na API do Stremio. Por isso este projeto mantém sua **própria lista de addons-fonte** (arquivo `addons.json`), busca o catálogo de cada um, mescla, remove duplicados (por `imdb_id`) e devolve tudo como um catálogo único chamado **"Agregado PT-BR"**.
 
-## IMPORTANTE SOBRE O FILTRO ANO
+### Filtros (todos opcionais e cumulativos)
 
-O manifest declara `year` como extra opcional. O backend aplica o ano junto dos demais critérios.
+1. **Tipo** — Filme, Série, ou qualquer outro tipo que alguma fonte ofereça (ex: canais de TV). É controlado pelo próprio Stremio (dropdown nativo "Filmes"/"Séries").
+2. **Ano** — extra `year`.
+3. **Novidades / Popularidade** — extra `sort`. "Novidades" ordena por ano decrescente; sem esse filtro (ou "Popularidade"), mantém a ordem intercalada entre as fontes.
+4. **Gênero** — extra `genre`, com as opções somadas de todas as fontes.
+5. **Busca** — extra `search`, repassado só às fontes que suportam busca.
 
-Exemplos conceituais:
+> Atenção: nem todos os clientes Stremio exibem um dropdown para extras "customizados" como `sort` — `genre`, `search` e `skip` são os mais universalmente suportados pela interface. `year` e `sort` também aparecem na maioria das versões recentes, mas teste no seu cliente.
 
-- Ano=2024 -> somente itens de 2024.
-- Ano=2024 + Gênero=Action -> somente ação de 2024.
-- Ano=2024 + Busca=Batman -> pesquisa filtrada por 2024.
-- Sem Ano -> comportamento padrão do catálogo.
+### Enriquecimento PT-BR
 
-A forma como cada cliente Stremio expõe filtros pode variar. O SDK oficial documenta `extra` para busca, filtragem e paginação.
+- Ao clicar em um item (`/meta`), se o id for do IMDb (`tt...`), busca sinopse e pôster PT-BR via TMDB (com fallback de tradução automática se o TMDB não tiver overview em pt-BR).
+- Se o id não for do IMDb (ex.: addons de anime que usam Kitsu/AniList), o addon repassa a requisição de `/meta` para o addon de origem daquele item.
+- Nos catálogos, os pôsteres exibidos na grade já são trocados por versões PT-BR quando disponíveis no TMDB.
 
-## 1. Teste local
+## 1. Editar as fontes agregadas
+
+Edite `addons.json` (array de `{ "name", "url", "enabled" }`) direto no GitHub, **ou** use o painel `/admin` depois de publicado:
+
+```
+https://SEU-SERVICO.onrender.com/admin
+```
+
+No `/admin` você pode adicionar, desativar ou excluir fontes. **Importante:** o Render (plano free) não tem disco persistente entre deploys — mudanças feitas no `/admin` valem enquanto o serviço está no ar, mas se cair/reiniciar ou você fizer um novo deploy, ele volta a usar o `addons.json` que está no GitHub. Use o botão **"Baixar addons.json"** no `/admin` e suba o arquivo atualizado no repositório para tornar a mudança permanente.
+
+Opcional: defina a variável de ambiente `ADMIN_TOKEN` para proteger o `/admin` com uma senha simples (acesse como `/admin?token=SUA_SENHA`).
+
+## 2. Teste local
 
 Requer Node.js 20+.
 
@@ -34,15 +42,6 @@ Requer Node.js 20+.
 npm install
 ```
 
-Defina a chave:
-
-Windows PowerShell:
-```powershell
-$env:TMDB_API_KEY="SUA_NOVA_CHAVE"
-npm start
-```
-
-Linux/macOS:
 ```bash
 export TMDB_API_KEY="SUA_NOVA_CHAVE"
 npm start
@@ -50,64 +49,35 @@ npm start
 
 Abra:
 
-`http://localhost:10000/manifest.json`
+- `http://localhost:10000/manifest.json`
+- `http://localhost:10000/admin`
 
-## 2. Publicar no GitHub
+## 3. Publicar no GitHub
 
-1. Crie um repositório novo no GitHub, por exemplo `cinemeta-ptbr`.
-2. Envie todos os arquivos deste projeto.
-3. Não envie `.env` nem a chave TMDB.
-4. O arquivo `render.yaml` já contém uma configuração básica para Render.
+1. Envie `server.js`, `package.json`, `addons.json`, `render.yaml`, `README.md` para o repositório.
+2. Não envie `.env` nem a chave TMDB.
 
-## 3. Publicar no Render
+## 4. Publicar no Render
 
-1. Acesse o Render.
-2. Escolha **New > Web Service**.
-3. Conecte seu GitHub.
-4. Selecione o repositório.
-5. Runtime: Node.
-6. Build Command: `npm install`.
-7. Start Command: `npm start`.
-8. Em Environment Variables, crie:
-   - Key: `TMDB_API_KEY`
-   - Value: sua nova chave TMDB.
-9. Faça o deploy.
+1. New > Web Service, conecte o repositório.
+2. Runtime: Node. Build: `npm install`. Start: `npm start`.
+3. Environment Variables:
+   - `TMDB_API_KEY`: sua chave TMDB.
+   - `ADMIN_TOKEN` (opcional): senha para proteger `/admin`.
+4. Deploy.
 
-O Render fornecerá uma URL HTTPS, normalmente:
+Manifesto: `https://NOME-DO-SERVICO.onrender.com/manifest.json`
 
-`https://NOME-DO-SERVICO.onrender.com`
+## 5. Instalar no Stremio
 
-O manifesto ficará em:
+Cole a URL do `manifest.json` na tela de instalação de addon por URL. Remova addons individuais que já estão cobertos pelo agregador para evitar catálogos duplicados na lista de dropdowns do Stremio (isso é um comportamento nativo do app e não pode ser controlado pelo addon).
 
-`https://NOME-DO-SERVICO.onrender.com/manifest.json`
+## Limitações conhecidas
 
-## 4. Instalar no Stremio
-
-Copie a URL HTTPS terminada em:
-
-`/manifest.json`
-
-No Stremio, abra a área de addons, escolha instalar addon por URL e cole o endereço.
-
-## 5. Teste recomendado
-
-Depois de instalar:
-
-1. Remova o Cinemeta original para evitar conflito de fornecedor de metadados.
-2. Abra um filme conhecido.
-3. Confira a sinopse.
-4. Confira o pôster.
-5. Abra os catálogos.
-6. Teste Ano sozinho.
-7. Teste Ano + Gênero.
-8. Teste Ano + Busca.
+- Cada fonte contribui só com a **primeira página** do catálogo dela na mesclagem; `skip` além disso pagina sobre o conjunto já mesclado (não busca páginas adicionais de cada fonte). Suficiente para navegação normal, mas listas muito longas de uma fonte específica podem não aparecer inteiras.
+- Fontes que só oferecem `stream` (ex. Torrentio, ThePirateBay, CineTorrent) não têm catálogo próprio — elas não entram na agregação de descoberta, só fornecem fontes de vídeo quando você assiste algo (isso é normal e esperado).
+- Algumas das URLs enviadas podem estar fora do ar ou mudar de formato sem aviso; erros de fontes individuais aparecem no `/admin` e não derrubam o restante do agregador.
 
 ## Segurança da chave
 
-Nunca coloque a TMDB API key no código ou no GitHub.
-
-Como uma chave anterior foi exposta durante os testes, gere/rotacione uma nova chave antes de publicar.
-
-## Observação sobre agregação de catálogos
-
-Este projeto reproduz os catálogos do Cinemeta; ele não tenta juntar automaticamente os catálogos de todos os outros addons instalados no Stremio. O Stremio trata os catálogos de cada addon separadamente. Um agregador de catálogos é um projeto diferente e pode ser acrescentado depois.
+Nunca coloque a TMDB API key no código ou no GitHub. Sempre por variável de ambiente.

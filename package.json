@@ -1,7 +1,7 @@
 {
   "name": "cinemeta-ptbr",
-  "version": "1.2.0",
-  "description": "Stremio addon that proxies Cinemeta metadata/catalogs, translates descriptions to Brazilian Portuguese, prefers PT-BR posters from TMDB, and adds an Ano catalog filter.",
+  "version": "2.0.0",
+  "description": "Stremio addon aggregator: merges catalogs from multiple configured addons, translates descriptions to Brazilian Portuguese, prefers PT-BR posters from TMDB, and adds cumulative Tipo/Ano/Novidades-Popularidade/Genero filters. Sources editable via /admin.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
