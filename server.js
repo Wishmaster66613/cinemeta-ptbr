@@ -2,6 +2,18 @@ const express = require("express");
 const NodeCache = require("node-cache");
 
 const app = express();
+
+// Stremio (web e, em vários casos, desktop) exige CORS liberado para
+// carregar manifest.json, catalog e meta. Sem isso o cliente mostra
+// "Failed to fetch" mesmo com o servidor no ar.
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.sendStatus(204);
+  next();
+});
+
 const PORT = Number(process.env.PORT || 10000);
 const TMDB_API_KEY = process.env.TMDB_API_KEY || "";
 const CINEMETA_BASE = (process.env.CINEMETA_BASE || "https://v3-cinemeta.strem.io").replace(/\/$/, "");
