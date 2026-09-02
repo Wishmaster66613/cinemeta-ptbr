@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: cinemeta-ptbr
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: TMDB_API_KEY
+        sync: false
+      - key: CINEMETA_BASE
+        value: https://v3-cinemeta.strem.io
