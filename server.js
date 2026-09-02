@@ -100,21 +100,41 @@ async function translateText(text) {
   const cached = metaCache.get(key);
   if (cached) return cached;
 
-  const u = new URL(TRANSLATE_URL);
-  u.searchParams.set("client", "gtx");
-  u.searchParams.set("sl", "auto");
-  u.searchParams.set("tl", "pt-BR");
-  u.searchParams.set("dt", "t");
-  u.searchParams.set("q", text);
-
+  // Tentativa 1: Google Translate (endpoint não-oficial). Em alguns provedores
+  // de hospedagem (IP de datacenter) esse endpoint responde 403/429.
   try {
+    const u = new URL(TRANSLATE_URL);
+    u.searchParams.set("client", "gtx");
+    u.searchParams.set("sl", "auto");
+    u.searchParams.set("tl", "pt-BR");
+    u.searchParams.set("dt", "t");
+    u.searchParams.set("q", text);
     const data = await getJson(u.toString());
     const translated = Array.isArray(data?.[0]) ? data[0].map(x => x?.[0] || "").join("") : "";
     if (translated) {
       metaCache.set(key, translated);
       return translated;
     }
-  } catch (_) {}
+  } catch (err) {
+    console.error(`[translate] Google falhou: ${err.message || err}`);
+  }
+
+  // Tentativa 2 (fallback): MyMemory, gratuito e sem chave, limite diário menor.
+  try {
+    const u2 = new URL("https://api.mymemory.translated.net/get");
+    u2.searchParams.set("q", text.slice(0, 480)); // MyMemory limita ~500 chars por requisição
+    u2.searchParams.set("langpair", "en|pt-BR");
+    const data2 = await getJson(u2.toString());
+    const translated2 = data2?.responseData?.translatedText;
+    if (translated2 && data2.responseStatus === 200) {
+      metaCache.set(key, translated2);
+      return translated2;
+    }
+  } catch (err) {
+    console.error(`[translate] MyMemory falhou: ${err.message || err}`);
+  }
+
+  console.error(`[translate] ambos os serviços falharam, mantendo texto original: "${text.slice(0, 60)}..."`);
   return text;
 }
 
@@ -293,6 +313,13 @@ function genreOptionsForType(type) {
   return [...set].sort();
 }
 
+function yearOptions() {
+  const current = new Date().getFullYear() + 1; // inclui lançamentos anunciados pro ano seguinte
+  const out = [];
+  for (let y = current; y >= 1950; y--) out.push(String(y));
+  return out;
+}
+
 function buildManifest() {
   const types = availableTypes();
   const catalogs = types.map(type => ({
@@ -301,7 +328,9 @@ function buildManifest() {
     name: "Agregado PT-BR",
     extra: [
       { name: "genre", isRequired: false, options: genreOptionsForType(type) || undefined },
-      { name: "year", isRequired: false },
+      // Sem "options" o Stremio não desenha um seletor pra esse extra, então
+      // damos uma lista de anos pra virar dropdown (igual o Gênero).
+      { name: "year", isRequired: false, options: yearOptions() },
       { name: "search", isRequired: false },
       { name: "sort", isRequired: false, options: ["Novidades", "Popularidade"] },
       { name: "skip", isRequired: false }
@@ -390,9 +419,18 @@ async function aggregateCatalog(type, extras) {
   }
   if (sort === "Novidades") {
     filtered = [...filtered].sort((a, b) => (extractYear(b) || 0) - (extractYear(a) || 0));
+  } else if (sort === "Popularidade") {
+    // Ordena pela nota do IMDB (campo imdbRating, quando a fonte fornece).
+    // Itens sem nota ficam no fim, mantendo a ordem de mescla entre eles.
+    filtered = [...filtered].sort((a, b) => {
+      const ra = parseFloat(a.imdbRating);
+      const rb = parseFloat(b.imdbRating);
+      const va = Number.isFinite(ra) ? ra : -1;
+      const vb = Number.isFinite(rb) ? rb : -1;
+      return vb - va;
+    });
   }
-  // "Popularidade" (ou sem sort): mantém a ordem de mescla round-robin,
-  // que já intercala pela ordem de cada fonte (aproximação de popularidade).
+  // Sem sort ("Nenhum"): mantém a ordem de mescla round-robin entre as fontes.
 
   const page = filtered.slice(skip, skip + 100);
 
