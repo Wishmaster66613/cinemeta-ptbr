@@ -153,7 +153,32 @@ async function tmdbFind(imdbId) {
     const found = data.movie_results?.[0] || data.tv_results?.[0] || null;
     tmdbCache.set(key, found || false);
     return found;
-  } catch (_) {
+  } catch (err) {
+    console.error(`[tmdb] find falhou para ${imdbId}: ${err.message || err}`);
+    tmdbCache.set(key, false);
+    return null;
+  }
+}
+
+// Endpoint de detalhes é mais confiável que o /find para sinopse localizada:
+// o /find às vezes devolve overview truncado ou vazio mesmo quando o TMDB
+// tem a sinopse em pt-BR cadastrada para o título.
+async function tmdbDetails(tmdbId, type) {
+  if (!TMDB_API_KEY) return null;
+  const key = `details:${type}:${tmdbId}`;
+  const cached = tmdbCache.get(key);
+  if (cached !== undefined) return cached;
+
+  const endpoint = type === "series" ? "tv" : "movie";
+  const u = new URL(`https://api.themoviedb.org/3/${endpoint}/${tmdbId}`);
+  u.searchParams.set("api_key", TMDB_API_KEY);
+  u.searchParams.set("language", "pt-BR");
+  try {
+    const data = await getJson(u.toString());
+    tmdbCache.set(key, data);
+    return data;
+  } catch (err) {
+    console.error(`[tmdb] details falhou para ${type}/${tmdbId}: ${err.message || err}`);
     tmdbCache.set(key, false);
     return null;
   }
@@ -183,7 +208,8 @@ async function tmdbPoster(imdbId, type) {
     const url = poster?.file_path ? `https://image.tmdb.org/t/p/w600_and_h900_bestv2${poster.file_path}` : null;
     tmdbCache.set(key, url || false);
     return url;
-  } catch (_) {
+  } catch (err) {
+    console.error(`[tmdb] images falhou para ${imdbId}: ${err.message || err}`);
     tmdbCache.set(key, false);
     return null;
   }
@@ -197,14 +223,25 @@ async function enrichMetaFull(type, imdbId) {
   let meta = null;
   try {
     meta = await getJson(`https://v3-cinemeta.strem.io/meta/${type}/${encodeURIComponent(imdbId)}.json`).then(d => d.meta);
-  } catch (_) {}
+  } catch (err) {
+    console.error(`[cinemeta] meta falhou para ${imdbId}: ${err.message || err}`);
+  }
   if (!meta) return null;
 
   let description = meta.description || "";
   const tmdb = await tmdbFind(imdbId);
-  if (tmdb?.overview?.trim()) {
-    description = tmdb.overview.trim();
-  } else if (description.trim()) {
+  let usedTmdbOverview = false;
+  if (tmdb?.id) {
+    const details = await tmdbDetails(tmdb.id, type);
+    if (details?.overview?.trim()) {
+      description = details.overview.trim();
+      usedTmdbOverview = true;
+    } else if (tmdb.overview?.trim()) {
+      description = tmdb.overview.trim();
+      usedTmdbOverview = true;
+    }
+  }
+  if (!usedTmdbOverview && description.trim()) {
     description = await translateText(description);
   }
   const poster = await tmdbPoster(imdbId, type);
@@ -327,12 +364,13 @@ function buildManifest() {
     id: "agregado",
     name: "Agregado PT-BR",
     extra: [
-      { name: "genre", isRequired: false, options: genreOptionsForType(type) || undefined },
-      // Sem "options" o Stremio não desenha um seletor pra esse extra, então
-      // damos uma lista de anos pra virar dropdown (igual o Gênero).
+      // Ordem alterada como experimento: o cliente Stremio decide sozinho quais
+      // extras viram botão isolado e quais vão pro painel "Filtros de catálogos" -
+      // não é algo que o addon controla diretamente, mas a ordem pode influenciar.
       { name: "year", isRequired: false, options: yearOptions() },
-      { name: "search", isRequired: false },
       { name: "sort", isRequired: false, options: ["Novidades", "Popularidade"] },
+      { name: "genre", isRequired: false, options: genreOptionsForType(type) || undefined },
+      { name: "search", isRequired: false },
       { name: "skip", isRequired: false }
     ]
   }));
@@ -519,6 +557,16 @@ function requireAdminToken(req, res, next) {
   if (token === ADMIN_TOKEN) return next();
   res.status(401).json({ error: "unauthorized" });
 }
+
+app.get("/api/diagnostics", requireAdminToken, (_req, res) => {
+  res.json({
+    tmdbApiKeyConfigured: Boolean(TMDB_API_KEY),
+    sourcesTotal: loadAddonsConfig().length,
+    sourcesResolved: sourceRegistry.length,
+    lastRefreshAt,
+    lastRefreshErrors
+  });
+});
 
 app.get("/api/sources", requireAdminToken, (req, res) => {
   const cfg = loadAddonsConfig();
